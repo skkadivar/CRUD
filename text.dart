@@ -1,51 +1,119 @@
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'package:flutter/material.dart';
+import 'database_helper.dart';
 
-class DatabaseHelper {
-  static final DatabaseHelper instance = DatabaseHelper._init();
-  static Database? _database;
+void main() {
+  runApp(MyApp());
+}
 
-  DatabaseHelper._init();
-
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDB('mydatabase.db');
-    return _database!;
-  }
-
-  Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
-
-    return await openDatabase(path, version: 1, onCreate: _createDB);
-  }
-
-  Future<void> _createDB(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL
-      )
-    ''');
-  }
-
-  Future<int> insertItem(String name) async {
-    final db = await database;
-    return await db.insert('items', {'name': name});
-  }
-
-  Future<List<Map<String, dynamic>>> fetchItems() async {
-    final db = await database;
-    return await db.query('items');
-  }
-
-  Future<int> updateItem(int id, String newName) async {
-    final db = await database;
-    return await db.update('items', {'name': newName}, where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<int> deleteItem(int id) async {
-    final db = await database;
-    return await db.delete('items', where: 'id = ?', whereArgs: [id]);
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: HomeScreen(),
+    );
   }
 }
+
+class HomeScreen extends StatefulWidget {
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final TextEditingController _controller = TextEditingController();
+  List<Map<String, dynamic>> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadItems();
+  }
+
+  Future<void> _loadItems() async {
+    final data = await DatabaseHelper.instance.fetchItems();
+    setState(() {
+      _items = data;
+    });
+  }
+
+  Future<void> _addItem() async {
+    if (_controller.text.isNotEmpty) {
+      await DatabaseHelper.instance.insertItem(_controller.text);
+      _controller.clear();
+      _loadItems();
+    }
+  }
+
+  Future<void> _updateItem(int id) async {
+    if (_controller.text.isNotEmpty) {
+      await DatabaseHelper.instance.updateItem(id, _controller.text);
+      _controller.clear();
+      _loadItems();
+    }
+  }
+
+  Future<void> _deleteItem(int id) async {
+    await DatabaseHelper.instance.deleteItem(id);
+    _loadItems();
+  }
+
+  void _showEditDialog(int id, String currentName) {
+    _controller.text = currentName;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Edit Item"),
+        content: TextField(controller: _controller),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel")),
+          TextButton(onPressed: () { _updateItem(id); Navigator.pop(context); }, child: Text("Update")),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("Flutter SQLite Example")),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    decoration: InputDecoration(hintText: "Enter item"),
+                  ),
+                ),
+                IconButton(icon: Icon(Icons.add), onPressed: _addItem),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _items.length,
+              itemBuilder: (context, index) {
+                final item = _items[index];
+                return ListTile(
+                  title: Text(item['name']),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(icon: Icon(Icons.edit), onPressed: () => _showEditDialog(item['id'], item['name'])),
+                      IconButton(icon: Icon(Icons.delete), onPressed: () => _deleteItem(item['id'])),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
